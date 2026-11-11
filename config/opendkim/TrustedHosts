@@ -1,0 +1,5 @@
+# Mail Platform :: hosts cujas mensagens são assinadas (gerado por deploy-mail-node.sh)
+127.0.0.1
+::1
+localhost
+{{MAIL_HOSTNAME}}

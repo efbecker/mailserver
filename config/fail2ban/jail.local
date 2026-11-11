@@ -1,0 +1,75 @@
+# =============================================================================
+# Mail Platform :: /etc/fail2ban/jail.local (gerado por deploy-mail-node.sh)
+# Cada BAN/UNBAN também é registrado na hypertable security_events
+# (Servidor 2) pela action "mail-platform-timescale".
+# =============================================================================
+[DEFAULT]
+ignoreip = 127.0.0.1/8 ::1 {{IGNORE_IPS}}
+bantime = 1h
+bantime.increment = true
+bantime.factor = 2
+bantime.maxtime = 4w
+findtime = 10m
+maxretry = 5
+banaction = nftables-multiport
+banaction_allports = nftables-allports
+# Bloqueio no nftables + registro na telemetria (TimescaleDB)
+action = %(action_)s
+         mail-platform-timescale[jail="%(__name__)s"]
+
+[sshd]
+enabled = true
+port = {{SSH_PORT}}
+backend = systemd
+mode = normal
+maxretry = 4
+
+[postfix]
+enabled = true
+mode = more
+port = smtp,465,submission
+logpath = /var/log/postfix.log
+backend = auto
+
+[postfix-rbl]
+enabled = true
+filter = postfix[mode=rbl]
+port = smtp,465,submission
+logpath = /var/log/postfix.log
+backend = auto
+maxretry = 1
+bantime = 12h
+
+[postfix-sasl]
+enabled = true
+filter = postfix[mode=auth]
+port = smtp,465,submission,imap,imaps,pop3,pop3s
+logpath = /var/log/postfix.log
+backend = auto
+maxretry = 3
+
+[apache-auth]
+enabled = true
+port = http,https
+logpath = /var/log/apache2/*error.log
+backend = auto
+
+# Falhas de login do Webmail / Painel (gravadas pelo PHP em auth.log)
+[mail-platform-auth]
+enabled = true
+filter = mail-platform-auth
+port = http,https
+logpath = /var/log/mail-platform/auth.log
+backend = auto
+maxretry = 5
+findtime = 15m
+
+# Reincidentes: banimento longo em todas as portas
+[recidive]
+enabled = true
+logpath = /var/log/fail2ban.log
+backend = auto
+banaction = %(banaction_allports)s
+bantime = 1w
+findtime = 1d
+maxretry = 3

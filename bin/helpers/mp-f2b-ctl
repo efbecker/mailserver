@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+# =============================================================================
+# Mail Platform :: mp-f2b-ctl — interface restrita ao Fail2ban e à fila Postfix
+# Chamado pelo PHP (usuário mailplatform) via sudo. Todos os argumentos são
+# validados; nada é repassado sem checagem.
+#
+#   mp-f2b-ctl jails                 -> lista de jails (uma por linha)
+#   mp-f2b-ctl status <jail>         -> status da jail
+#   mp-f2b-ctl banned                -> JSON {jail: [ips]} de todas as jails
+#   mp-f2b-ctl ban <jail> <ip>       -> banimento manual
+#   mp-f2b-ctl unban <jail> <ip>     -> remove banimento
+#   mp-f2b-ctl mailq                 -> fila do Postfix em JSON Lines (postqueue -j)
+#   mp-f2b-ctl flush                 -> tenta reenviar a fila (postqueue -f)
+# =============================================================================
+set -Eeuo pipefail
+export LC_ALL=C.UTF-8 PATH=/usr/sbin:/usr/bin:/sbin:/bin
+
+die() { printf 'mp-f2b-ctl: %s\n' "$*" >&2; exit 64; }
+
+valid_ip() {
+    python3 -I -c 'import ipaddress,sys; ipaddress.ip_address(sys.argv[1])' "$1" 2>/dev/null
+}
+
+list_jails() {
+    fail2ban-client status | sed -n 's/^.*Jail list:[[:space:]]*//p' | tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | sed '/^$/d'
+}
+
+valid_jail() {
+    [[ $1 =~ ^[A-Za-z0-9_.-]{1,50}$ ]] || return 1
+    list_jails | grep -qxF -- "$1"
+}
+
+cmd=${1:-}
+case $cmd in
+    jails)
+        list_jails ;;
+    status)
+        [[ $# -eq 2 ]] || die "uso: status <jail>"
+        valid_jail "$2" || die "jail inexistente"
+        fail2ban-client status "$2" ;;
+    banned)
+        first=1
+        printf '{'
+        while IFS= read -r jail; do
+            ips=$(fail2ban-client get "$jail" banip 2>/dev/null || true)
+            printf '%s"%s":[' "$([[ $first -eq 1 ]] || printf ',')" "$jail"
+            sep=""
+            for ip in $ips; do
+                valid_ip "$ip" || continue
+                printf '%s"%s"' "$sep" "$ip"; sep=","
+            done
+            printf ']'
+            first=0
+        done < <(list_jails)
+        printf '}\n' ;;
+    ban|unban)
+        [[ $# -eq 3 ]] || die "uso: $cmd <jail> <ip>"
+        valid_jail "$2" || die "jail inexistente"
+        valid_ip "$3" || die "ip inválido"
+        if [[ $cmd == ban ]]; then fail2ban-client set "$2" banip "$3"
+        else fail2ban-client set "$2" unbanip "$3"; fi ;;
+    mailq)
+        postqueue -j ;;
+    flush)
+        postqueue -f ;;
+    *)
+        die "comando inválido (jails|status|banned|ban|unban|mailq|flush)" ;;
+esac

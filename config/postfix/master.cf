@@ -1,0 +1,63 @@
+# =============================================================================
+# Mail Platform :: /etc/postfix/master.cf (gerado por deploy-mail-node.sh)
+# =============================================================================
+# service type  private unpriv  chroot  wakeup  maxproc command + args
+#               (yes)   (yes)   (no)    (never) (100)
+# =============================================================================
+smtp      inet  n       -       y       -       -       smtpd
+  -o syslog_name=postfix/smtpd
+
+# Submission somente em loopback: usada pelo Webmail (MailSender.php).
+# Sem SASL (não há IMAP/SMTP externo: o webmail é o único cliente), assinatura
+# DKIM obrigatória via OpenDKIM (milter indisponível => tempfail, nunca envia
+# sem assinatura).
+127.0.0.1:submission inet n -   y       -       -       smtpd
+  -o syslog_name=postfix/submission
+  -o smtpd_tls_security_level=may
+  -o smtpd_sasl_auth_enable=no
+  -o smtpd_client_restrictions=permit_mynetworks,reject
+  -o smtpd_helo_restrictions=
+  -o smtpd_sender_restrictions=reject_non_fqdn_sender
+  -o smtpd_relay_restrictions=permit_mynetworks,reject
+  -o smtpd_recipient_restrictions=reject_non_fqdn_recipient,permit_mynetworks,reject
+  -o smtpd_milters=inet:127.0.0.1:8891
+  -o milter_default_action=tempfail
+  -o milter_macro_daemon_name=ORIGINATING
+  -o smtpd_client_connection_rate_limit=0
+  -o smtpd_client_message_rate_limit=0
+
+pickup    unix  n       -       y       60      1       pickup
+cleanup   unix  n       -       y       -       0       cleanup
+qmgr      unix  n       -       n       300     1       qmgr
+tlsmgr    unix  -       -       y       1000?   1       tlsmgr
+rewrite   unix  -       -       y       -       -       trivial-rewrite
+bounce    unix  -       -       y       -       0       bounce
+defer     unix  -       -       y       -       0       bounce
+trace     unix  -       -       y       -       0       bounce
+verify    unix  -       -       y       -       1       verify
+flush     unix  n       -       y       1000?   0       flush
+proxymap  unix  -       -       n       -       -       proxymap
+proxywrite unix -       -       n       -       1       proxymap
+smtp      unix  -       -       y       -       -       smtp
+relay     unix  -       -       y       -       -       smtp
+  -o syslog_name=postfix/$service_name
+showq     unix  n       -       y       -       -       showq
+error     unix  -       -       y       -       -       error
+retry     unix  -       -       y       -       -       error
+discard   unix  -       -       y       -       -       discard
+local     unix  -       n       n       -       -       local
+virtual   unix  -       n       n       -       -       virtual
+lmtp      unix  -       -       y       -       -       lmtp
+anvil     unix  -       -       y       -       1       anvil
+scache    unix  -       -       y       -       1       scache
+postlog   unix-dgram n  -       n       -       1       postlogd
+
+# =============================================================================
+# Pipe criptográfico: recebe o stream RFC 5322 no stdin, sela assunto, corpo,
+# headers e anexos com crypto_box_seal (public_key do destinatário) e grava no
+# TimescaleDB. Códigos de saída sysexits: 0 entregue, 75 (EX_TEMPFAIL) a
+# mensagem permanece na fila, 67 (EX_NOUSER) bounce.
+# =============================================================================
+mailingest unix -       n       n       -       10      pipe
+  flags=DORhu user=mailingest:mailingest null_sender=MAILER-DAEMON
+  argv=/usr/local/bin/mail-ingest.py --sender ${sender} --recipient ${recipient} --original-recipient ${original_recipient} --client-address ${client_address} --queue-id ${queue_id}
