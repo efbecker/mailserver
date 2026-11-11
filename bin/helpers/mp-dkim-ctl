@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+# =============================================================================
+# Mail Platform :: mp-dkim-ctl — instala/remove chaves DKIM no OpenDKIM
+# Chamado pelo painel admin (usuário mailplatform) via sudo.
+#
+#   mp-dkim-ctl install <dominio> <seletor>   (chave privada PEM no stdin)
+#   mp-dkim-ctl remove  <dominio>
+#   mp-dkim-ctl list
+#
+# A chave privada fica em /etc/opendkim/keys/<dominio>/<seletor>.private
+# (0600 opendkim). KeyTable e SigningTable são regenerados a partir do
+# diretório de chaves a cada operação, garantindo consistência.
+# =============================================================================
+set -Eeuo pipefail
+umask 077
+export LC_ALL=C.UTF-8 PATH=/usr/sbin:/usr/bin:/sbin:/bin
+
+readonly KEYDIR=/etc/opendkim/keys
+readonly KEYTABLE=/etc/opendkim/KeyTable
+readonly SIGNTABLE=/etc/opendkim/SigningTable
+
+die() { printf 'mp-dkim-ctl: %s\n' "$*" >&2; exit 64; }
+
+valid_domain() {
+    local d=${1,,}
+    [[ ${#d} -le 253 && $d =~ ^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$ ]]
+}
+valid_selector() { [[ $1 =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$ ]]; }
+
+rebuild_tables() {
+    local kt st dir domain key selector
+    kt=$(mktemp) st=$(mktemp)
+    printf '# Gerado por mp-dkim-ctl — não edite manualmente.\n' | tee "$kt" > "$st"
+    shopt -s nullglob
+    for dir in "$KEYDIR"/*/; do
+        domain=$(basename "$dir")
+        valid_domain "$domain" || continue
+        for key in "$dir"*.private; do
+            selector=$(basename "$key" .private)
+            valid_selector "$selector" || continue
+            printf '%s._domainkey.%s %s:%s:%s\n' "$selector" "$domain" "$domain" "$selector" "$key" >> "$kt"
+            # refile: "*" é o único curinga; os demais caracteres são literais
+            printf '*@%s %s._domainkey.%s\n' "$domain" "$selector" "$domain" >> "$st"
+        done
+    done
+    install -m 0640 -o root -g opendkim "$kt" "$KEYTABLE"
+    install -m 0640 -o root -g opendkim "$st" "$SIGNTABLE"
+    rm -f "$kt" "$st"
+    systemctl reload-or-restart opendkim
+}
+
+cmd=${1:-}
+case $cmd in
+    install)
+        [[ $# -eq 3 ]] || die "uso: install <dominio> <seletor> < chave.pem"
+        domain=${2,,} selector=${3,,}
+        valid_domain "$domain" || die "domínio inválido"
+        valid_selector "$selector" || die "seletor inválido"
+        tmp=$(mktemp)
+        trap 'rm -f "$tmp"' EXIT
+        head -c 16384 > "$tmp"
+        openssl pkey -in "$tmp" -noout 2>/dev/null || die "chave privada PEM inválida"
+        install -d -m 0750 -o opendkim -g opendkim "$KEYDIR" "$KEYDIR/$domain"
+        # Um seletor ativo por domínio: remove chaves antigas
+        find "$KEYDIR/$domain" -maxdepth 1 -name '*.private' ! -name "${selector}.private" -delete
+        install -m 0600 -o opendkim -g opendkim "$tmp" "$KEYDIR/$domain/${selector}.private"
+        rebuild_tables
+        printf 'ok %s %s\n' "$domain" "$selector" ;;
+    remove)
+        [[ $# -eq 2 ]] || die "uso: remove <dominio>"
+        domain=${2,,}
+        valid_domain "$domain" || die "domínio inválido"
+        [[ -d $KEYDIR/$domain ]] && rm -rf -- "${KEYDIR:?}/${domain}"
+        rebuild_tables
+        printf 'ok removido %s\n' "$domain" ;;
+    list)
+        [[ -r $KEYTABLE ]] && grep -v '^#' "$KEYTABLE" | awk '{split($2,a,":"); print a[1], a[2]}' ;;
+    *)
+        die "comando inválido (install|remove|list)" ;;
+esac

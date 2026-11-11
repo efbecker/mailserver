@@ -1,0 +1,170 @@
+#!/usr/bin/python3 -I
+# =============================================================================
+# Mail Platform :: mp-security-event
+# Registra um evento de segurança na hypertable security_events (Servidor 2).
+# Usado pela action do Fail2ban (BAN/UNBAN) e por scripts de deploy.
+#
+#   mp-security-event --service fail2ban --jail sshd --ip 203.0.113.7 \
+#                     --action BAN --details "failures=5"
+#
+# Conexão: TLS verify-full com a role mailplatform_telemetry (somente INSERT).
+# Falhas de conexão nunca bloqueiam o chamador: o evento é gravado num spool
+# local (JSON Lines) e reenviado automaticamente na próxima execução bem
+# sucedida. Sempre termina com código 0, exceto em argumentos inválidos (64).
+# =============================================================================
+import argparse
+import datetime as dt
+import fcntl
+import ipaddress
+import json
+import os
+import re
+import sys
+import syslog
+
+CONFIG_FILE = os.environ.get("MP_TELEMETRY_CONFIG", "/etc/mail-platform/telemetry.conf")
+SPOOL_FILE = "/var/spool/mail-platform/security-events.jsonl"
+MAX_SPOOL_BYTES = 20 * 1024 * 1024
+KV_RE = re.compile(r"^(MP_[A-Z0-9_]+)='([^']*)'$")
+
+
+def log(msg, prio=syslog.LOG_INFO):
+    syslog.openlog("mp-security-event", syslog.LOG_PID, syslog.LOG_AUTH)
+    syslog.syslog(prio, msg)
+
+
+def load_config(path):
+    cfg = {}
+    with open(path, "r", encoding="utf-8") as fh:
+        for line in fh:
+            m = KV_RE.match(line.strip())
+            if m:
+                cfg[m.group(1)] = m.group(2)
+    for key in ("MP_DB_HOST", "MP_DB_PORT", "MP_DB_NAME", "MP_DB_USER", "MP_DB_PASSWORD", "MP_DB_SSLROOTCERT"):
+        if not cfg.get(key):
+            raise ValueError(f"{key} ausente em {path}")
+    return cfg
+
+
+def parse_args():
+    p = argparse.ArgumentParser(description="Registra evento em security_events")
+    p.add_argument("--service", required=True)
+    p.add_argument("--action", required=True)
+    p.add_argument("--jail", default=None)
+    p.add_argument("--ip", default=None)
+    p.add_argument("--details", default=None)
+    a = p.parse_args()
+    if not re.fullmatch(r"[a-z0-9_.-]{1,50}", a.service):
+        p.exit(64, "service inválido\n")
+    if not re.fullmatch(r"[A-Z_]{1,32}", a.action):
+        p.exit(64, "action inválida\n")
+    if a.jail is not None and not re.fullmatch(r"[A-Za-z0-9_.-]{1,50}", a.jail):
+        p.exit(64, "jail inválida\n")
+    if a.ip:
+        try:
+            a.ip = str(ipaddress.ip_address(a.ip))
+        except ValueError:
+            p.exit(64, "ip inválido\n")
+    else:
+        a.ip = None
+    if a.details is not None:
+        a.details = a.details.replace("\x00", "")[:4000]
+    return a
+
+
+def spool_append(event):
+    os.makedirs(os.path.dirname(SPOOL_FILE), mode=0o700, exist_ok=True)
+    try:
+        if os.path.getsize(SPOOL_FILE) > MAX_SPOOL_BYTES:
+            log("spool cheio; evento descartado", syslog.LOG_WARNING)
+            return
+    except FileNotFoundError:
+        pass
+    fd = os.open(SPOOL_FILE, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+    with os.fdopen(fd, "a", encoding="utf-8") as fh:
+        fcntl.flock(fh, fcntl.LOCK_EX)
+        fh.write(json.dumps(event, separators=(",", ":")) + "\n")
+
+
+def spool_drain():
+    """Retorna (eventos, handle travado) ou ([], None)."""
+    try:
+        fh = open(SPOOL_FILE, "r+", encoding="utf-8")
+    except FileNotFoundError:
+        return [], None
+    fcntl.flock(fh, fcntl.LOCK_EX)
+    events = []
+    for line in fh:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            events.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+    return events, fh
+
+
+def insert(cfg, events):
+    import psycopg2  # importado tardiamente: falha aqui também vai para o spool
+
+    conn = psycopg2.connect(
+        host=cfg["MP_DB_HOST"],
+        port=int(cfg["MP_DB_PORT"]),
+        dbname=cfg["MP_DB_NAME"],
+        user=cfg["MP_DB_USER"],
+        password=cfg["MP_DB_PASSWORD"],
+        sslmode=cfg.get("MP_DB_SSLMODE", "verify-full"),
+        sslrootcert=cfg["MP_DB_SSLROOTCERT"],
+        connect_timeout=5,
+        application_name="mp-security-event",
+    )
+    try:
+        with conn, conn.cursor() as cur:
+            cur.executemany(
+                "INSERT INTO security_events (event_time, service, jail_name, source_ip, action, details) "
+                "VALUES (%s, %s, %s, %s::inet, %s, %s)",
+                [(e["event_time"], e["service"], e["jail"], e["ip"], e["action"], e["details"]) for e in events],
+            )
+    finally:
+        conn.close()
+
+
+def main():
+    a = parse_args()
+    event = {
+        "event_time": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "service": a.service,
+        "jail": a.jail,
+        "ip": a.ip,
+        "action": a.action,
+        "details": a.details,
+    }
+    try:
+        cfg = load_config(CONFIG_FILE)
+    except (OSError, ValueError) as exc:
+        log(f"configuração indisponível ({exc}); evento enviado ao spool", syslog.LOG_WARNING)
+        spool_append(event)
+        return 0
+
+    pending, fh = spool_drain()
+    try:
+        insert(cfg, pending + [event])
+        if fh is not None:
+            fh.seek(0)
+            fh.truncate()
+        log(f"{a.action} service={a.service} jail={a.jail} ip={a.ip} registrado (+{len(pending)} do spool)")
+    except Exception as exc:  # noqa: BLE001 - nunca propagar para o Fail2ban
+        log(f"falha ao gravar no TimescaleDB ({exc.__class__.__name__}: {exc}); evento no spool", syslog.LOG_WARNING)
+        if fh is not None:
+            fh.close()
+            fh = None
+        spool_append(event)
+    finally:
+        if fh is not None:
+            fh.close()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

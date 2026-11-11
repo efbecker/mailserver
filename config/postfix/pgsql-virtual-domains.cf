@@ -1,0 +1,7 @@
+# Mail Platform :: domínios virtuais ativos (gerado por deploy-mail-node.sh)
+# TLS verify-full via PGSSLMODE/PGSSLROOTCERT (import_environment do main.cf).
+hosts = inet:{{DB_HOST}}:{{DB_PORT}}
+user = {{DB_POSTFIX_USER}}
+password = {{DB_POSTFIX_PASSWORD}}
+dbname = {{DB_NAME}}
+query = SELECT domain_name FROM mail_domains WHERE lower(domain_name) = lower('%s') AND active = TRUE LIMIT 1

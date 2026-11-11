@@ -1,0 +1,5 @@
+#!/bin/sh
+# Mail Platform :: hook do certbot — recarrega serviços após renovar o certificado
+set -e
+systemctl reload apache2 || true
+systemctl reload postfix || true
