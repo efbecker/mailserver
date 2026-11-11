@@ -647,13 +647,13 @@ final class WebmailController
         }
         $doc = "<!doctype html>\n<html><head><meta charset=\"utf-8\"><meta name=\"referrer\" content=\"no-referrer\">"
             . '<style>html,body{margin:0;padding:0}body{padding:16px;font:14px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;'
-            . 'color:#1f2328;background:#fff;word-wrap:break-word;overflow-wrap:anywhere}img{max-width:100%;height:auto}'
+            . 'color:#1f2328;background:#fff;word-wrap:break-word;overflow-wrap:anywhere;overflow-x:auto}img{max-width:100%;height:auto}'
             . 'pre.mp-plain{white-space:pre-wrap;font:inherit;margin:0}blockquote{margin:0 0 0 .8ex;border-left:2px solid #ccc;padding-left:1ex}'
             . "table{max-width:100%}</style></head><body>{$content}</body></html>";
 
         $img = $allowRemote ? "'self' data: https: http:" : "'self' data:";
         $csp = "default-src 'none'; img-src {$img}; style-src 'unsafe-inline'; font-src data:; media-src 'none'; "
-            . "base-uri 'none'; form-action 'none'; frame-ancestors 'self'; sandbox allow-popups allow-popups-to-escape-sandbox";
+            . "base-uri 'none'; form-action 'none'; frame-ancestors 'self'; sandbox allow-same-origin allow-popups allow-popups-to-escape-sandbox";
         return new Response(200, $doc, [
             'Content-Type' => 'text/html; charset=utf-8',
             'Content-Security-Policy' => $csp,

@@ -117,6 +117,20 @@ busca `q=` decifrando em memória), `threads/{id}`, `messages/{id}`, `render/{id
 CSP própria com `sandbox`), `attachments/{id}`, `send`, `drafts`, `contacts`,
 `password`, `folders/{TRASH|SPAM}/empty`.
 
+## Interfaces
+
+- **Webmail** (`https://mail.seudominio/webmail.html`): três colunas (pastas,
+  conversas, leitura), busca, filtros, estrela, arquivo, spam, lixeira, anexos,
+  rascunhos com salvamento automático, responder/encaminhar e troca de senha.
+  O HTML das mensagens é exibido num iframe sandbox sem scripts, com imagens
+  externas bloqueadas até o clique em “Exibir imagens”. Atalhos: `c` escrever,
+  `j`/`k` navegar, `r` responder, `a` responder a todos, `f` encaminhar,
+  `e` arquivar, `#` excluir, `s` estrela, `/` pesquisar.
+- **Painel Admin** (`https://mail.seudominio/admin.html`, restrito por IP):
+  visão geral, servidores com deploy SSH e log em tempo real, domínios com
+  registros DNS prontos para copiar e verificação, contas, Fail2ban, eventos de
+  segurança e fila do Postfix.
+
 ## Estrutura
 
 ```
@@ -136,7 +150,10 @@ CSP própria com `sandbox`), `attachments/{id}`, `send`, `drafts`, `contacts`,
 │   ├── Http/                      # Request, Response, Session, Router
 │   ├── Services/                  # SshOrchestrator, DnsValidator, MailSender, SecurityLog
 │   └── Controllers/               # AdminController, WebmailController
-└── public/                        # (Entrega 4) admin.html, webmail.html, assets/
+└── public/
+    ├── index.php                  # front-controller da API
+    ├── admin.html, webmail.html   # SPAs
+    └── assets/                    # css/app.css, js/common.js, js/admin.js, js/webmail.js
 ```
 
 ## Status das entregas
@@ -149,4 +166,6 @@ CSP própria com `sandbox`), `attachments/{id}`, `send`, `drafts`, `contacts`,
   `0x01 || crypto_box_seal(...)`.
 - [x] **Entrega 3**: backend PHP (`Database`, `SshOrchestrator`, `DnsValidator`,
   `MailSender`, `AdminController`, `WebmailController` e `public/index.php`).
-- [ ] **Entrega 4**: frontend do Painel Admin e do Webmail.
+- [x] **Entrega 4**: frontend do Painel Admin (`/admin.html`) e do Webmail
+  (`/webmail.html`), sem dependências externas e compatível com o CSP estrito
+  (sem scripts ou estilos inline).
