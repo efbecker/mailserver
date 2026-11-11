@@ -406,7 +406,7 @@ apply_schema() {
     tmp=$(mktemp)
     cat "$SCHEMA_FILE" > "$tmp"
     chmod 0644 "$tmp"
-    PGOPTIONS='-c client_min_messages=warning' psql_postgres -d "$DB_NAME" -f "$tmp" >/dev/null
+    PGOPTIONS='-c client_min_messages=error' psql_postgres -d "$DB_NAME" -f "$tmp" >/dev/null
     rm -f "$tmp"
     local hypertables
     hypertables=$(psql_postgres -d "$DB_NAME" -At -c \

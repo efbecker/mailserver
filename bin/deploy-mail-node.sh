@@ -638,6 +638,7 @@ configure_fail2ban() {
     render fail2ban/action.d/mail-platform-timescale.conf /etc/fail2ban/action.d/mail-platform-timescale.conf 0644 root:root
     render fail2ban/filter.d/mail-platform-auth.conf /etc/fail2ban/filter.d/mail-platform-auth.conf 0644 root:root
     [[ -e /var/log/apache2/mail-platform-error.log ]] || install -m 0640 -o root -g adm /dev/null /var/log/apache2/mail-platform-error.log
+    [[ -e /var/log/fail2ban.log ]] || install -m 0640 -o root -g adm /dev/null /var/log/fail2ban.log
 
     fail2ban-client -t >/dev/null 2>&1 || { fail2ban-client -t || true; die "configuração do Fail2ban inválida"; }
     systemctl enable --quiet fail2ban
