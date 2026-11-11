@@ -94,6 +94,29 @@ Para o servidor: registro `A`/`AAAA` de `mail.seudominio` e PTR (rDNS) do IP
 apontando para ele, com as portas 25, 80 e 443 abertas. MX, SPF, DKIM e DMARC de
 cada domínio são gerados pelo painel admin.
 
+## API (Entrega 3)
+
+Todas as respostas são JSON. Métodos que alteram estado exigem o cabeçalho
+`X-CSRF-Token` (obtido em `GET .../session`). Sessões: cookie `MPSESSID`
+(Secure, HttpOnly, SameSite=Strict, 30 min ociosa / 12 h absoluta).
+
+**Painel Admin** (`/api/admin/*`, restrito por IP no Apache): `session`, `login`,
+`logout`, `overview`; `nodes` (chave SSH cifrada no banco, TOFU de host key),
+`nodes/{id}/test`, `deploy` + `deploy/{job}/stream` (logs em tempo real via SSE);
+`domains` (gera DKIM RSA-2048 e instala no OpenDKIM), `domains/{id}/verify`
+(MX, SPF, DKIM, DMARC, PTR/FCrDNS); `accounts` (cria par X25519, cota,
+`reset-password`); `fail2ban`, `fail2ban/ban|unban`, `queue`, `queue/flush`,
+`security-events`.
+
+**Webmail** (`/api/webmail/*`): no login a chave privada é desbloqueada com a senha
+(Argon2id) e re-cifrada com uma chave efêmera que fica **apenas** no cookie
+`MPKEY` (HttpOnly, path `/api/webmail`); o servidor guarda só o blob cifrado.
+Rotas: `folders`, `messages` (conversas, filtros `unread|attachments|starred`,
+busca `q=` decifrando em memória), `threads/{id}`, `messages/{id}`, `render/{id}`
+(HTML sanitizado por lista de permissões, imagens remotas bloqueadas por padrão,
+CSP própria com `sandbox`), `attachments/{id}`, `send`, `drafts`, `contacts`,
+`password`, `folders/{TRASH|SPAM}/empty`.
+
 ## Estrutura
 
 ```
@@ -107,7 +130,12 @@ cada domínio são gerados pelo painel admin.
 │   └── helpers/                   # mp-security-event, mp-f2b-ctl, mp-dkim-ctl, mp-tls-deploy-hook
 ├── config/                        # Templates: postfix/, fail2ban/, opendkim/, rspamd/, php/, apache/
 ├── sql/schema_timescaledb.sql     # DDL com hypertables e índices
-├── src/                           # (Entregas 2 e 3) backend PHP
+├── src/
+│   ├── Config/                    # Config (app.env), Database (PDO + TLS verify-full)
+│   ├── Crypto/                    # ZeroKnowledgeVault
+│   ├── Http/                      # Request, Response, Session, Router
+│   ├── Services/                  # SshOrchestrator, DnsValidator, MailSender, SecurityLog
+│   └── Controllers/               # AdminController, WebmailController
 └── public/                        # (Entrega 4) admin.html, webmail.html, assets/
 ```
 
@@ -119,6 +147,6 @@ cada domínio são gerados pelo painel admin.
   XChaCha20-Poly1305, sessão com chave efêmera, blind index HMAC) e `bin/mail-ingest.py`
   (pipe do Postfix: sela e grava no TimescaleDB). Formato compartilhado:
   `0x01 || crypto_box_seal(...)`.
-- [ ] **Entrega 3**: backend PHP (`Database`, `SshOrchestrator`, `DnsValidator`,
-  `MailSender`, controllers e `public/index.php`).
+- [x] **Entrega 3**: backend PHP (`Database`, `SshOrchestrator`, `DnsValidator`,
+  `MailSender`, `AdminController`, `WebmailController` e `public/index.php`).
 - [ ] **Entrega 4**: frontend do Painel Admin e do Webmail.

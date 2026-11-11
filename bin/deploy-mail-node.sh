@@ -331,7 +331,8 @@ create_users_and_dirs() {
     install -d -m 0755 -o root -g root "$ETC_MP"
     install -d -m 0700 -o root -g root "$TLS_DIR"
     install -d -m 0750 -o "$APP_USER" -g "$APP_USER" /var/lib/mail-platform
-    install -d -m 0700 -o "$APP_USER" -g "$APP_USER" /var/lib/mail-platform/sessions /var/lib/mail-platform/tmp
+    install -d -m 0700 -o "$APP_USER" -g "$APP_USER" /var/lib/mail-platform/sessions /var/lib/mail-platform/tmp \
+        /var/lib/mail-platform/jobs /var/lib/mail-platform/ssh /var/lib/mail-platform/db-credentials
     install -d -m 0750 -o "$INGEST_USER" -g "$INGEST_USER" /var/lib/mail-ingest
     install -d -m 0770 -o "$APP_USER" -g adm /var/log/mail-platform
     install -d -m 0700 -o root -g root /var/spool/mail-platform
