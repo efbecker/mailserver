@@ -22,6 +22,9 @@
 #                          Sem esta opção é usado um certificado autoassinado.
 #   --admin-email EMAIL    Destino dos e-mails de sistema (root/postmaster)
 #   --app-dir DIR          Diretório da aplicação (padrão: diretório pai deste script)
+#   --public-ip IP         IP público do servidor quando ele está atrás de NAT
+#                          (Postfix proxy_interfaces, SPF/PTR no painel). Fica
+#                          salvo em /etc/mail-platform/app.env para reexecuções.
 #   --no-rbl               Não consulta RBL (zen.spamhaus.org) no RCPT TO
 #   -h | --help            Mostra esta ajuda
 #
@@ -49,6 +52,7 @@ ACME_EMAIL="${MP_ACME_EMAIL:-}"
 ADMIN_EMAIL="${MP_ADMIN_EMAIL:-}"
 APP_DIR="${MP_APP_DIR:-$(cd -- "${SCRIPT_DIR}/.." && pwd)}"
 ENABLE_RBL="${MP_ENABLE_RBL:-1}"
+PUBLIC_IP="${MP_PUBLIC_IP:-}"
 
 export DEBIAN_FRONTEND=noninteractive
 export LC_ALL=C.UTF-8
@@ -148,6 +152,7 @@ parse_args() {
             --acme-email)  ACME_EMAIL=${2:?}; shift 2 ;;
             --admin-email) ADMIN_EMAIL=${2:?}; shift 2 ;;
             --app-dir)     APP_DIR=${2:?}; shift 2 ;;
+            --public-ip)   PUBLIC_IP=${2:?}; shift 2 ;;
             --no-rbl)      ENABLE_RBL=0; shift ;;
             -h|--help)     usage; exit 0 ;;
             *) die "opção desconhecida: $1 (use --help)" ;;
@@ -193,9 +198,32 @@ preflight() {
         ADMIN_ALLOW_LIST+=("$entry")
     done
 
+    resolve_public_ip
     log "Hostname      : ${MAIL_HOSTNAME}"
+    log "IP público    : ${PUBLIC_IP:-não definido}"
     log "Aplicação     : ${APP_DIR}"
     log "Painel admin  : ${ADMIN_ALLOW_LIST[*]}"
+}
+
+is_private_ipv4() {
+    [[ $1 =~ ^(10\.|127\.|169\.254\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.|100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.) ]]
+}
+
+# IP público: --public-ip > valor salvo em app.env > IP local (se não for privado).
+resolve_public_ip() {
+    local detected
+    [[ -n $PUBLIC_IP ]] || PUBLIC_IP=$(read_kv "${ETC_MP}/app.env" MP_PUBLIC_IP)
+    if [[ -n $PUBLIC_IP ]]; then
+        is_ipv4 "$PUBLIC_IP" || die "--public-ip deve ser um IPv4 válido: $PUBLIC_IP"
+        is_private_ipv4 "$PUBLIC_IP" && die "--public-ip ${PUBLIC_IP} é um endereço privado"
+        return 0
+    fi
+    detected=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src"){print $(i+1); exit}}' || true)
+    if [[ -n $detected ]] && ! is_private_ipv4 "$detected"; then
+        PUBLIC_IP=$detected
+    else
+        warn "IP local ${detected:-desconhecido} é privado (NAT). Informe o IP público com --public-ip para o Postfix e o DNS ficarem corretos."
+    fi
 }
 
 load_db_env() {
@@ -358,6 +386,7 @@ MP_APP_MASTER_KEY='${MASTER_KEY}'
 MP_SUBJECT_HMAC_KEY='${HMAC_KEY}'
 MP_ADMIN_USER='admin'
 MP_ADMIN_PASSWORD_HASH='${admin_hash}'
+MP_PUBLIC_IP='${PUBLIC_IP}'
 MP_SMTP_HOST='127.0.0.1'
 MP_SMTP_PORT='587'
 MP_AUTH_LOG='/var/log/mail-platform/auth.log'
@@ -420,6 +449,7 @@ configure_postfix() {
 
     TPL[MAIL_DOMAIN]=${MAIL_HOSTNAME#*.}
     TPL[INET_PROTOCOLS]=$inet_proto
+    TPL[PROXY_INTERFACES]=$PUBLIC_IP
     TPL[TLS_CERT]=${TLS_DIR}/fullchain.pem
     TPL[TLS_KEY]=${TLS_DIR}/privkey.pem
     TPL[IMPORT_ENVIRONMENT]=$default_env
@@ -708,8 +738,7 @@ verify_db_connectivity() {
 }
 
 summary() {
-    local ip4
-    ip4=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src"){print $(i+1); exit}}' || true)
+    local ip4=$PUBLIC_IP
     step "Deploy do Servidor 1 concluído"
     log "Webmail     : https://${MAIL_HOSTNAME}/webmail.html"
     log "Painel admin: https://${MAIL_HOSTNAME}/admin.html (IPs: ${ADMIN_ALLOW_LIST[*]})"

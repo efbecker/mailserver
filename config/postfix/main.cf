@@ -14,6 +14,9 @@ mydestination = $myhostname, localhost.$mydomain, localhost
 mynetworks = 127.0.0.0/8 [::1]/128
 inet_interfaces = all
 inet_protocols = {{INET_PROTOCOLS}}
+# IP público quando o servidor está atrás de NAT (vazio = sem NAT). Faz o
+# Postfix reconhecer mensagens endereçadas ao IP público como locais.
+proxy_interfaces = {{PROXY_INTERFACES}}
 smtpd_banner = $myhostname ESMTP
 biff = no
 append_dot_mydomain = no
