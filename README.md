@@ -115,9 +115,10 @@ cada domínio são gerados pelo painel admin.
 
 - [x] **Entrega 1**: schema SQL, `apache-vhost.conf`, `deploy-db-node.sh`,
   `deploy-mail-node.sh` (Postfix, OpenDKIM, Rspamd, Fail2ban) e instalador via curl.
-- [ ] **Entrega 2**: `src/Crypto/ZeroKnowledgeVault.php` e `bin/mail-ingest.py`.
-  Até lá o deploy instala um stub do pipe que devolve `EX_TEMPFAIL`: as mensagens
-  ficam na fila do Postfix, sem perda e sem texto plano em disco.
+- [x] **Entrega 2**: `src/Crypto/ZeroKnowledgeVault.php` (Argon2id, X25519, Sealed Box,
+  XChaCha20-Poly1305, sessão com chave efêmera, blind index HMAC) e `bin/mail-ingest.py`
+  (pipe do Postfix: sela e grava no TimescaleDB). Formato compartilhado:
+  `0x01 || crypto_box_seal(...)`.
 - [ ] **Entrega 3**: backend PHP (`Database`, `SshOrchestrator`, `DnsValidator`,
   `MailSender`, controllers e `public/index.php`).
 - [ ] **Entrega 4**: frontend do Painel Admin e do Webmail.

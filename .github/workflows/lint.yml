@@ -20,4 +20,6 @@ jobs:
       - name: shellcheck
         run: shellcheck -e SC2015 install.sh bin/*.sh bin/helpers/mp-f2b-ctl bin/helpers/mp-dkim-ctl bin/helpers/mp-tls-deploy-hook
       - name: python compile
-        run: python3 -m py_compile bin/helpers/mp-security-event
+        run: python3 -m py_compile bin/helpers/mp-security-event bin/mail-ingest.py
+      - name: php lint
+        run: for f in $(find src public -name '*.php'); do php -l "$f"; done
